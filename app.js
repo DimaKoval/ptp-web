@@ -10,6 +10,9 @@ const DEFAULT_RELAYS = [
   'wss://nostr.mom',
 ];
 const HELLO_INTERVAL_MS = 3000;
+// Tolerated clock difference with the host (seconds). Relays apply `since`
+// to live events too, so a tight window drops messages from skewed clocks.
+const CLOCK_SKEW_SECS = 60;
 
 const $ = (id) => document.getElementById(id);
 const stage = $('stage');
@@ -112,7 +115,7 @@ class Relays {
     this.sockets.set(url, ws);
     ws.onopen = () => {
       backoff = 1000;
-      const filter = { ...this.filter, since: Math.floor(Date.now() / 1000) - 10 };
+      const filter = { ...this.filter, since: Math.floor(Date.now() / 1000) - CLOCK_SKEW_SECS };
       ws.send(JSON.stringify(['REQ', 'ptp', filter]));
       this.onOpen(url);
     };
