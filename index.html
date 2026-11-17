@@ -7,11 +7,16 @@
   <meta name="robots" content="noindex">
   <title>PTP Share</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='14' fill='%237c5cff'/%3E%3Ccircle cx='16' cy='16' r='5' fill='white'/%3E%3C/svg%3E">
-  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="style.css?v=3">
 </head>
 <body>
   <main id="stage" class="idle">
     <video id="video" playsinline autoplay muted></video>
+    <canvas id="screen"></canvas>
+    <div id="settling" class="settling" aria-hidden="true">
+      <div class="spinner"></div>
+      <span>Adjusting picture…</span>
+    </div>
 
     <section id="status" class="status">
       <div class="status-card">
@@ -50,6 +55,6 @@
 
     <pre id="stats" class="stats" hidden></pre>
   </main>
-  <script type="module" src="app.js"></script>
+  <script type="module" src="app.js?v=3"></script>
 </body>
 </html>

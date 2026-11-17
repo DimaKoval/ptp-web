@@ -41,6 +41,39 @@ video {
 }
 #stage.playing video { opacity: 1; }
 
+/* Frames are drawn into this canvas: Chrome on macOS shows <video> with a
+   lifted "video gamma", the canvas path keeps colours exact. The video
+   element stays in the page (invisible) as the frame source. */
+#screen {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  opacity: 0;
+  transition: opacity .4s ease, filter .25s ease;
+}
+#stage.canvas #screen { opacity: 1; }
+#stage.canvas video { opacity: 0 !important; }
+
+/* While the host changes the picture size (window resized, bars cropped). */
+.settling {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 12px;
+  color: var(--text);
+  font-weight: 600;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .2s ease;
+}
+.settling .spinner { margin: 0; }
+#stage.settling .settling { opacity: 1; }
+#stage.settling #screen, #stage.settling video { filter: blur(18px) brightness(.5); }
+
 /* ── status overlay ── */
 .status {
   position: absolute;

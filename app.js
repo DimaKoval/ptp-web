@@ -310,6 +310,7 @@ class ViewerSession {
   }
 
   onConnected() {
+    knownSize = '';
     stage.classList.add('playing');
     $('controls').hidden = false;
     video.muted = true;
@@ -441,12 +442,55 @@ setInterval(async () => {
   $('stats').textContent = lines.join('\n');
 }, 1000);
 
-// The host resizes the stream when a shared window is resized.
+// ── canvas rendering ──
+// Chrome on macOS shows <video> with the BT.709 "video gamma" (midtones
+// lifted: grey 128 shows as 139). Drawing frames into a 2D canvas goes
+// through the normal sRGB colour path, which matches the host's screen.
+const screen = $('screen');
+const screenCtx = screen.getContext('2d', { alpha: false });
+let lastDraw = 0;
+function drawFrame() {
+  const w = video.videoWidth, h = video.videoHeight;
+  if (!w || !h || video.readyState < 2) return;
+  if (screen.width !== w || screen.height !== h) { screen.width = w; screen.height = h; }
+  try {
+    screenCtx.drawImage(video, 0, 0, w, h);
+    lastDraw = performance.now();
+    stage.classList.add('canvas');
+  } catch {
+    stage.classList.remove('canvas'); // fall back to the plain video element
+  }
+}
+if ('requestVideoFrameCallback' in video) {
+  const onFrame = () => { drawFrame(); video.requestVideoFrameCallback(onFrame); };
+  video.requestVideoFrameCallback(onFrame);
+}
+// Fallback (no requestVideoFrameCallback, or it stops firing for an
+// invisible video): draw on animation frames when no frame came for 50 ms.
+(function tick() {
+  if (performance.now() - lastDraw > 50) drawFrame();
+  requestAnimationFrame(tick);
+})();
+screen.ondblclick = toggleFullscreen;
+
+// ── picture size changes ──
+// The host resizes the stream when a shared window is resized and crops
+// black bars a moment later. Blur and show a spinner until it settles.
+let settleTimer = null;
+let knownSize = '';
 video.addEventListener('resize', () => {
   if (!video.videoWidth || !session) return;
-  $('meta').textContent = `${video.videoWidth}×${video.videoHeight}` + (session.fps ? ` · ${session.fps} fps` : '');
+  const size = `${video.videoWidth}×${video.videoHeight}`;
+  $('meta').textContent = size + (session.fps ? ` · ${session.fps} fps` : '');
+  if (knownSize && size !== knownSize) {
+    stage.classList.add('settling');
+    clearTimeout(settleTimer);
+    settleTimer = setTimeout(() => stage.classList.remove('settling'), 2200);
+  }
+  knownSize = size;
 });
 
 window.ptpDebug = () => session; // for troubleshooting from the dev console
+window.ptpDebug.draw = () => drawFrame();
 window.addEventListener('hashchange', () => start());
 start();
