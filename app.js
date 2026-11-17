@@ -90,6 +90,22 @@ async function decrypt(key, content) {
 
 // ───────────────────────── nostr ─────────────────────────
 
+// Browsers answer Opus without `stereo=1`, and Chrome then decodes the
+// host's stereo stream as mono. Ask for stereo and full-band bitrate.
+function enableStereoOpus(sdp) {
+  const m = sdp.match(/^a=rtpmap:(\d+) opus\/48000\/2(?=\r?\n|$)/m);
+  if (!m) return sdp;
+  const pt = m[1];
+  const extra = { stereo: '1', 'sprop-stereo': '1', maxaveragebitrate: '510000' };
+  const re = new RegExp(`^a=fmtp:${pt} ([^\\r\\n]*)`, 'm');
+  if (!re.test(sdp)) return sdp.replace(m[0], `${m[0]}\r\na=fmtp:${pt} stereo=1;sprop-stereo=1;maxaveragebitrate=510000`);
+  return sdp.replace(re, (line, params) => {
+    const kv = new Map(params.split(';').filter(Boolean).map((p) => p.trim().split('=')));
+    for (const [k, v] of Object.entries(extra)) kv.set(k, v);
+    return `a=fmtp:${pt} ${[...kv].map(([k, v]) => `${k}=${v}`).join(';')}`;
+  });
+}
+
 class Relays {
   constructor(urls, filter, onEvent) {
     this.urls = urls;
@@ -262,8 +278,13 @@ class ViewerSession {
     video.srcObject = stream;
 
     pc.ontrack = (e) => {
-      try { e.receiver.jitterBufferTarget = 0; } catch {}
-      try { e.receiver.playoutDelayHint = 0; } catch {}
+      // Low-latency hint for video only. Audio keeps the browser's adaptive
+      // jitter buffer: forcing it to zero causes dropouts and warbly
+      // time-stretching on real internet paths.
+      if (e.track.kind === 'video') {
+        try { e.receiver.jitterBufferTarget = 0; } catch {}
+        try { e.receiver.playoutDelayHint = 0; } catch {}
+      }
       stream.addTrack(e.track);
       if (e.track.kind === 'audio') this.hasAudio = true;
     };
@@ -283,6 +304,7 @@ class ViewerSession {
       this.fail('Unsupported browser', 'This browser can’t play H.264 video over WebRTC. Try Chrome, Edge, Safari or Firefox.');
       return;
     }
+    answer.sdp = enableStereoOpus(answer.sdp);
     await pc.setLocalDescription(answer);
     await waitForIceGathering(pc, 2500);
     this.answer = pc.localDescription.sdp;
