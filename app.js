@@ -279,13 +279,10 @@ class ViewerSession {
     video.srcObject = stream;
 
     pc.ontrack = (e) => {
-      // Low-latency hint for video only. Audio keeps the browser's adaptive
-      // jitter buffer: forcing it to zero causes dropouts and warbly
-      // time-stretching on real internet paths.
-      if (e.track.kind === 'video') {
-        try { e.receiver.jitterBufferTarget = 0; } catch {}
-        try { e.receiver.playoutDelayHint = 0; } catch {}
-      }
+      // No low-latency playout hints: with a zero playout delay Chrome renders
+      // each frame the moment it is decoded, so network and encoder jitter
+      // show up as stutter. The default adaptive buffer (~50–100 ms) spaces
+      // frames by their capture timestamps instead.
       stream.addTrack(e.track);
       if (e.track.kind === 'audio') this.hasAudio = true;
     };
