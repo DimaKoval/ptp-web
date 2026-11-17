@@ -271,6 +271,7 @@ class ViewerSession {
 
   async handleOffer(msg) {
     setStatus('Connecting…', 'Found the host. Establishing a direct connection…');
+    this.fps = msg.fps;
     $('meta').textContent = `${msg.width}×${msg.height} · ${msg.fps} fps`;
     const pc = new RTCPeerConnection({ iceServers: msg.ice_servers || [] });
     this.pc = pc;
@@ -442,6 +443,12 @@ setInterval(async () => {
   if (pair) lines.push(`rtt     ${Math.round((pair.currentRoundTripTime || 0) * 1000)} ms · ${route}`);
   $('stats').textContent = lines.join('\n');
 }, 1000);
+
+// The host resizes the stream when a shared window is resized.
+video.addEventListener('resize', () => {
+  if (!video.videoWidth || !session) return;
+  $('meta').textContent = `${video.videoWidth}×${video.videoHeight}` + (session.fps ? ` · ${session.fps} fps` : '');
+});
 
 window.ptpDebug = () => session; // for troubleshooting from the dev console
 window.addEventListener('hashchange', () => start());
