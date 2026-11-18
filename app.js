@@ -310,7 +310,6 @@ class ViewerSession {
   }
 
   onConnected() {
-    knownSize = '';
     stage.classList.add('playing');
     $('controls').hidden = false;
     video.muted = true;
@@ -473,21 +472,10 @@ if ('requestVideoFrameCallback' in video) {
 })();
 screen.ondblclick = toggleFullscreen;
 
-// ── picture size changes ──
-// The host resizes the stream when a shared window is resized and crops
-// black bars a moment later. Blur and show a spinner until it settles.
-let settleTimer = null;
-let knownSize = '';
+// The host resizes the stream when a shared window is resized.
 video.addEventListener('resize', () => {
   if (!video.videoWidth || !session) return;
-  const size = `${video.videoWidth}×${video.videoHeight}`;
-  $('meta').textContent = size + (session.fps ? ` · ${session.fps} fps` : '');
-  if (knownSize && size !== knownSize) {
-    stage.classList.add('settling');
-    clearTimeout(settleTimer);
-    settleTimer = setTimeout(() => stage.classList.remove('settling'), 2200);
-  }
-  knownSize = size;
+  $('meta').textContent = `${video.videoWidth}×${video.videoHeight}` + (session.fps ? ` · ${session.fps} fps` : '');
 });
 
 window.ptpDebug = () => session; // for troubleshooting from the dev console
