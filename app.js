@@ -181,20 +181,21 @@ function signEvent(sk, pk, tags, content) {
 
 let session = null;
 
-async function start() {
+async function start(afterEnd = false) {
   const link = parseLink();
   if (!link) {
     setStatus('No room link', 'Open the link your friend shared with you — it ends with #k=…', { spinner: false });
     return;
   }
   if (session) session.close();
-  session = new ViewerSession(link);
+  session = new ViewerSession(link, afterEnd);
   await session.run();
 }
 
 class ViewerSession {
-  constructor(link) {
+  constructor(link, afterEnd = false) {
     this.link = link;
+    this.afterEnd = afterEnd;
     this.sid = hex(crypto.getRandomValues(new Uint8Array(8)));
     this.sk = schnorr.utils.randomPrivateKey();
     this.pk = hex(schnorr.getPublicKey(this.sk));
@@ -206,7 +207,9 @@ class ViewerSession {
   }
 
   async run() {
-    setStatus('Connecting…', 'Looking for the host on the signaling relays.');
+    const ENDED = ['The stream has ended', 'The host stopped sharing. This page reconnects by itself when they go live again.'];
+    if (this.afterEnd) setStatus(...ENDED);
+    else setStatus('Connecting…', 'Looking for the host on the signaling relays.');
     const { topic, key } = await deriveRoom(this.link.secret);
     this.topic = topic;
     this.key = key;
@@ -226,7 +229,9 @@ class ViewerSession {
         setStatus('Connecting…', 'Can’t reach any signaling relay yet. Check your internet connection.');
         continue;
       }
-      if (Date.now() - startedAt > 15000) {
+      if (this.afterEnd) {
+        setStatus(...ENDED);
+      } else if (Date.now() - startedAt > 15000) {
         setStatus('Waiting for the host…', 'The host doesn’t seem to be live yet. This page will connect automatically when they start.');
       }
       this.sendHello();
@@ -262,8 +267,16 @@ class ViewerSession {
         console.error(e);
         this.fail('Could not set up the connection', String(e.message || e));
       });
+    } else if (msg.type === 'info') {
+      // Host changed resolution or frame rate while live.
+      this.fps = msg.fps;
+      $('meta').textContent = `${msg.width}×${msg.height} · ${msg.fps} fps`;
     } else if (msg.type === 'ended') {
-      this.finish('The stream has ended', 'The host stopped sharing. Thanks for watching!');
+      // The link stays the same next time: keep waiting for the host. The bye
+      // tells the next session to ignore this viewer's replayed hello.
+      this.sendBye();
+      this.finish('The stream has ended', 'The host stopped sharing. This page reconnects by itself when they go live again.');
+      setTimeout(() => { if (session === this) start(true); }, 2000);
     } else if (msg.type === 'bye' && msg.sid === this.sid) {
       this.finish('Disconnected', 'The host closed your connection.', true);
     }
