@@ -314,6 +314,12 @@ class ViewerSession {
     $('controls').hidden = false;
     video.muted = true;
     video.play().catch(() => {});
+    // `#…&mute=1` starts silent (used for automated tests).
+    if (new URLSearchParams(location.hash.slice(1)).has('mute')) {
+      $('unmute').hidden = false;
+      updateMuteUi();
+      return;
+    }
     // Try to start with sound; browsers usually block it until the user clicks.
     video.muted = false;
     video.play().then(() => updateMuteUi()).catch(() => {
