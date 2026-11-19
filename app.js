@@ -55,6 +55,31 @@ function browserLabel() {
   return os ? `${browser} on ${os}` : browser;
 }
 
+// Can this browser decode AV1 over WebRTC smoothly, in hardware? Software
+// AV1 decoding of a big screen at high fps eats the CPU, so the host only
+// switches to AV1 when every viewer says yes. `#…&codec=h264` / `&codec=av1`
+// overrides the check (for testing).
+const av1Probe = (async () => {
+  try {
+    const caps = RTCRtpReceiver.getCapabilities && RTCRtpReceiver.getCapabilities('video');
+    if (!caps || !caps.codecs.some((c) => c.mimeType.toLowerCase() === 'video/av1')) return false;
+    if (!navigator.mediaCapabilities || !navigator.mediaCapabilities.decodingInfo) return false;
+    const r = await navigator.mediaCapabilities.decodingInfo({
+      type: 'webrtc',
+      video: { contentType: 'video/AV1', width: 2560, height: 1440, bitrate: 20_000_000, framerate: 60 },
+    });
+    return !!(r.supported && r.smooth && r.powerEfficient);
+  } catch {
+    return false;
+  }
+})();
+async function av1Support() {
+  const forced = new URLSearchParams(location.hash.slice(1)).get('codec');
+  return forced ? forced.toLowerCase() === 'av1' : av1Probe;
+}
+
+const metaText = (w, h, fps, codec) => [`${w}×${h}`, fps ? `${fps} fps` : '', codec || ''].filter(Boolean).join(' · ');
+
 // ───────────────────────── room ─────────────────────────
 
 function parseLink() {
@@ -246,7 +271,9 @@ class ViewerSession {
     this.relays.publish(await signEvent(this.sk, this.pk, tags, content));
   }
 
-  sendHello() { this.send({ type: 'hello', sid: this.sid, label: browserLabel() }); }
+  async sendHello() {
+    this.send({ type: 'hello', sid: this.sid, label: browserLabel(), av1: await av1Support() });
+  }
 
   sendBye() { if (this.gotOffer && !this.closed) this.send({ type: 'bye', sid: this.sid }); }
 
@@ -268,9 +295,10 @@ class ViewerSession {
         this.fail('Could not set up the connection', String(e.message || e));
       });
     } else if (msg.type === 'info') {
-      // Host changed resolution or frame rate while live.
+      // Host changed resolution, frame rate or codec while live.
       this.fps = msg.fps;
-      $('meta').textContent = `${msg.width}×${msg.height} · ${msg.fps} fps`;
+      this.codec = msg.codec;
+      $('meta').textContent = metaText(msg.width, msg.height, msg.fps, msg.codec);
     } else if (msg.type === 'ended') {
       // The link stays the same next time: keep waiting for the host. The bye
       // tells the next session to ignore this viewer's replayed hello.
@@ -285,7 +313,8 @@ class ViewerSession {
   async handleOffer(msg) {
     setStatus('Connecting…', 'Found the host. Establishing a direct connection…');
     this.fps = msg.fps;
-    $('meta').textContent = `${msg.width}×${msg.height} · ${msg.fps} fps`;
+    this.codec = msg.codec;
+    $('meta').textContent = metaText(msg.width, msg.height, msg.fps, msg.codec);
     const pc = new RTCPeerConnection({ iceServers: msg.ice_servers || [] });
     this.pc = pc;
     const stream = new MediaStream();
@@ -382,24 +411,29 @@ function prefersMuted() {
   try { return localStorage.getItem('ptp-muted') === '1'; } catch { return false; }
 }
 
+// While muted the slider shows 0 but video.volume keeps the level to go
+// back to.
 function updateMuteUi() {
   const muted = video.muted || video.volume === 0;
   $('ic-vol').hidden = muted;
   $('ic-muted').hidden = !muted;
+  $('volume').value = muted ? 0 : video.volume;
   if (!video.muted) soundBlocked = false;
   $('mute').classList.toggle('blocked', soundBlocked);
-  $('mute').title = soundBlocked ? 'Your browser started this muted — click anywhere for sound' : 'Mute (m)';
+  $('mute').title = soundBlocked ? 'Your browser started this muted — click anywhere for sound' : muted ? 'Unmute (m)' : 'Mute (m)';
   $('sound-hint').hidden = !soundBlocked;
   stage.classList.toggle('sound-blocked', soundBlocked);
 }
 
-function toggleMute() {
-  video.muted = !video.muted;
-  if (!video.muted && video.volume === 0) { video.volume = 1; $('volume').value = 1; }
-  if (!video.muted) video.play().catch(() => {});
-  try { localStorage.setItem('ptp-muted', video.muted ? '1' : '0'); } catch {}
+function setMuted(muted) {
+  video.muted = muted;
+  if (!muted && video.volume === 0) video.volume = 1;
+  if (!muted) video.play().catch(() => {});
+  try { localStorage.setItem('ptp-muted', muted ? '1' : '0'); } catch {}
   updateMuteUi();
 }
+
+function toggleMute() { setMuted(!(video.muted || video.volume === 0)); }
 
 // First click / key press / tap anywhere turns on sound the browser held back.
 for (const type of ['pointerdown', 'keydown', 'touchend']) {
@@ -422,17 +456,35 @@ function toggleFullscreen() {
 }
 
 $('mute').onclick = toggleMute;
-$('volume').oninput = (e) => { video.volume = Number(e.target.value); video.muted = video.volume === 0; updateMuteUi(); };
+// Dragging to 0 mutes; the level from before the drag is what unmuting
+// brings back.
+let volumeBeforeDrag = null;
+$('volume').onpointerdown = () => { volumeBeforeDrag = video.muted ? null : video.volume; };
+$('volume').oninput = (e) => {
+  const v = Number(e.target.value);
+  if (v === 0) {
+    if (volumeBeforeDrag) video.volume = volumeBeforeDrag;
+    if (!video.muted) setMuted(true);
+  } else {
+    video.volume = v;
+    if (video.muted) setMuted(false);
+  }
+  updateMuteUi();
+};
+$('volume').onchange = () => { volumeBeforeDrag = null; };
 $('fullscreen').onclick = toggleFullscreen;
 $('stats-btn').onclick = () => { $('stats').hidden = !$('stats').hidden; };
 $('retry').onclick = () => start();
 video.ondblclick = toggleFullscreen;
 
 try {
-  const v = localStorage.getItem('ptp-volume');
-  if (v !== null) { video.volume = Number(v); $('volume').value = v; }
+  const v = Number(localStorage.getItem('ptp-volume'));
+  if (v > 0 && v <= 1) video.volume = v;
 } catch {}
-video.onvolumechange = () => { try { localStorage.setItem('ptp-volume', String(video.volume)); } catch {} };
+video.onvolumechange = () => {
+  if (video.volume > 0) { try { localStorage.setItem('ptp-volume', String(video.volume)); } catch {} }
+};
+updateMuteUi();
 
 document.addEventListener('keydown', (e) => {
   if (e.target instanceof HTMLInputElement) return;
@@ -472,6 +524,12 @@ setInterval(async () => {
   const lines = [];
   if (v) {
     lines.push(`video   ${v.frameWidth || '?'}×${v.frameHeight || '?'} @ ${Math.round(v.framesPerSecond || 0)} fps`);
+    const codec = v.codecId && report.get(v.codecId);
+    if (codec) {
+      const name = codec.mimeType.replace(/^video\//i, '').replace(/^H264$/i, 'H.264');
+      const hw = v.powerEfficientDecoder === true ? 'hardware' : v.powerEfficientDecoder === false ? 'software' : '';
+      lines.push(`codec   ${[name, hw && `${hw} decode`].filter(Boolean).join(' · ')}`);
+    }
     lines.push(`bitrate ${(kbps / 1000).toFixed(1)} Mbps`);
     lines.push(`lost    ${v.packetsLost ?? 0} pkts · dropped ${v.framesDropped ?? 0} frames`);
     if (v.jitterBufferDelay && v.jitterBufferEmittedCount) {
@@ -517,7 +575,7 @@ screen.ondblclick = toggleFullscreen;
 // The host resizes the stream when a shared window is resized.
 video.addEventListener('resize', () => {
   if (!video.videoWidth || !session) return;
-  $('meta').textContent = `${video.videoWidth}×${video.videoHeight}` + (session.fps ? ` · ${session.fps} fps` : '');
+  $('meta').textContent = metaText(video.videoWidth, video.videoHeight, session.fps, session.codec);
 });
 
 window.ptpDebug = () => session; // for troubleshooting from the dev console
