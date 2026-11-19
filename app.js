@@ -325,20 +325,16 @@ class ViewerSession {
   onConnected() {
     stage.classList.add('playing');
     $('controls').hidden = false;
-    video.muted = true;
-    video.play().catch(() => {});
-    // `#…&mute=1` starts silent (used for automated tests).
-    if (new URLSearchParams(location.hash.slice(1)).has('mute')) {
-      $('unmute').hidden = false;
-      updateMuteUi();
-      return;
-    }
-    // Try to start with sound; browsers usually block it until the user clicks.
-    video.muted = false;
-    video.play().then(() => updateMuteUi()).catch(() => {
+    // Start with sound unless the viewer muted last time (or `#…&mute=1`,
+    // used by automated tests). Browsers may refuse sound until the viewer
+    // interacts with the page: then play muted and turn sound on at the
+    // first click or key press anywhere.
+    const testMute = new URLSearchParams(location.hash.slice(1)).has('mute');
+    video.muted = testMute || prefersMuted();
+    video.play().then(updateMuteUi).catch(() => {
       video.muted = true;
+      soundBlocked = this.hasAudio !== false;
       video.play().catch(() => {});
-      if (this.hasAudio !== false) $('unmute').hidden = false;
       updateMuteUi();
     });
   }
@@ -353,7 +349,8 @@ class ViewerSession {
   finish(title, detail, retry = false) {
     stage.classList.remove('playing');
     $('controls').hidden = true;
-    $('unmute').hidden = true;
+    soundBlocked = false;
+    updateMuteUi();
     setStatus(title, detail, { spinner: false, retry });
     this.close();
   }
@@ -378,17 +375,44 @@ function waitForIceGathering(pc, timeoutMs) {
 
 // ───────────────────────── player controls ─────────────────────────
 
+// True while the browser holds sound back until the viewer interacts.
+let soundBlocked = false;
+
+function prefersMuted() {
+  try { return localStorage.getItem('ptp-muted') === '1'; } catch { return false; }
+}
+
 function updateMuteUi() {
   const muted = video.muted || video.volume === 0;
   $('ic-vol').hidden = muted;
   $('ic-muted').hidden = !muted;
-  if (!video.muted) $('unmute').hidden = true;
+  if (!video.muted) soundBlocked = false;
+  $('mute').classList.toggle('blocked', soundBlocked);
+  $('mute').title = soundBlocked ? 'Your browser started this muted — click anywhere for sound' : 'Mute (m)';
+  $('sound-hint').hidden = !soundBlocked;
+  stage.classList.toggle('sound-blocked', soundBlocked);
 }
 
 function toggleMute() {
   video.muted = !video.muted;
   if (!video.muted && video.volume === 0) { video.volume = 1; $('volume').value = 1; }
+  if (!video.muted) video.play().catch(() => {});
+  try { localStorage.setItem('ptp-muted', video.muted ? '1' : '0'); } catch {}
   updateMuteUi();
+}
+
+// First click / key press / tap anywhere turns on sound the browser held back.
+for (const type of ['pointerdown', 'keydown', 'touchend']) {
+  document.addEventListener(type, (e) => {
+    if (!soundBlocked) return;
+    soundBlocked = false;
+    // The mute button or the m key unmutes through toggleMute.
+    if (e.target instanceof Element && e.target.closest('#mute')) return;
+    if (e.type === 'keydown' && e.key === 'm') return;
+    video.muted = false;
+    video.play().catch(() => {});
+    updateMuteUi();
+  }, { capture: true });
 }
 
 function toggleFullscreen() {
@@ -397,7 +421,6 @@ function toggleFullscreen() {
   else if (video.webkitEnterFullscreen) video.webkitEnterFullscreen();
 }
 
-$('unmute').onclick = () => { video.muted = false; video.play().catch(() => {}); updateMuteUi(); };
 $('mute').onclick = toggleMute;
 $('volume').oninput = (e) => { video.volume = Number(e.target.value); video.muted = video.volume === 0; updateMuteUi(); };
 $('fullscreen').onclick = toggleFullscreen;

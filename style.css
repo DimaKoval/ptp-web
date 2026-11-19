@@ -113,25 +113,10 @@ video {
 .btn.primary { background: var(--accent); }
 .btn:hover { filter: brightness(1.1); }
 
-/* ── unmute ── */
-.unmute {
-  position: absolute;
-  top: 20px; left: 50%;
-  transform: translateX(-50%);
-  display: flex; align-items: center; gap: 8px;
-  padding: 10px 18px;
-  border-radius: 999px;
-  border: 1px solid var(--border);
-  background: var(--card);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  color: var(--text);
-  font: inherit; font-weight: 600;
-  cursor: pointer;
-  animation: bob 2.4s ease-in-out infinite;
-}
-.unmute svg { width: 18px; height: 18px; fill: currentColor; }
-@keyframes bob { 50% { transform: translate(-50%, 3px); } }
+/* ── sound blocked by the browser's autoplay policy ── */
+.sound-hint { color: var(--accent); font-size: 13px; font-weight: 600; white-space: nowrap; }
+.icon-btn.blocked { color: var(--accent); background: rgba(124,92,255,.16); animation: nudge 1.6s ease-in-out infinite; }
+@keyframes nudge { 50% { transform: scale(1.08); } }
 
 /* ── controls ── */
 .controls {
@@ -148,7 +133,7 @@ video {
   -webkit-backdrop-filter: blur(20px);
   transition: opacity .25s ease, transform .25s ease;
 }
-#stage.idle-mouse .controls { opacity: 0; transform: translate(-50%, 8px); pointer-events: none; }
+#stage.idle-mouse:not(.sound-blocked) .controls { opacity: 0; transform: translate(-50%, 8px); pointer-events: none; }
 .controls .left, .controls .right { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .live-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--red); box-shadow: 0 0 0 0 rgba(248,81,73,.6); animation: pulse 1.6s infinite; flex: none; }
 @keyframes pulse { 70% { box-shadow: 0 0 0 8px rgba(248,81,73,0); } 100% { box-shadow: 0 0 0 0 rgba(248,81,73,0); } }
